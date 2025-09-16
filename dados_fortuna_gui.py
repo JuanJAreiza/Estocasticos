@@ -33,34 +33,34 @@ def prize_text(mode, matches):
         else: return "Perdedor (0-1 aciertos)"
 
 THEORETICAL = {
-    "2_original": {
+    "2_Original": {
         "Primer premio (mayor)": 1/36,
         "Segundo premio": 10/36,
         "Perdedor": 25/36
     },
-    "2_order_free": {
+    "2_Orden Libre": {
         "Primer premio (mayor)": 2/36,
         "Segundo premio": 18/36,
         "Perdedor": 16/36
     },
-    "2_bonus": {
+    "2_Dado Bonus": {
         "Primer premio (mayor)": (1/36) + (10/36)*(1/6),
         "Segundo premio": (10/36) - (10/36)*(1/6),
         "Perdedor": 25/36
     },
-    "4_original": {
+    "4_Original": {
         "Premio mayor (4 aciertos)": 1/1296,
         "Segundo premio (3 aciertos)": 20/1296,
         "Tercer premio (2 aciertos)": 150/1296,
         "Perdedor (0-1 aciertos)": 1125/1296
     },
-    "4_order_free": {
+    "4_Orden Libre": {
         "Premio mayor (4 aciertos)": 24/1296,
         "Segundo premio (3 aciertos)": 336/1296,
         "Tercer premio (2 aciertos)": 660/1296,
         "Perdedor (0-1 aciertos)": (260+16)/1296
     },
-    "4_bonus": {
+    "4_Dado Bonus": {
         "Premio mayor (4 aciertos)": 0.0087169,
         "Segundo premio (3 aciertos)": 0.079244,
         "Tercer premio (2 aciertos)": 0.270151,
@@ -80,97 +80,194 @@ class DadosFortunaApp:
 
         # Variables
         self.mode_var = tk.IntVar(value=2)
-        self.rule_var = tk.StringVar(value="original")
-        self.bonus_var = tk.BooleanVar(value=False)
-        self.entry_vars = []
+        # Regla ahora incluye la opción 'bonus' como modo separado para evitar combinaciones simultáneas
+        self.rule_var = tk.StringVar(value="Original")
+        self.players = []  # Lista de diccionarios: {name_var, dice_vars (list[StringVar]), frame}
 
         # Frame de configuración
         config_frame = tk.LabelFrame(root, text="Configuración del juego", bg="#f5f5f5", font=("Arial", 12, "bold"))
         config_frame.pack(fill="x", padx=10, pady=10)
 
         ttk.Label(config_frame, text="Modo:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        ttk.Combobox(config_frame, textvariable=self.mode_var, values=[2, 4], width=5, state="readonly").grid(row=0, column=1, padx=5)
+        mode_cb = ttk.Combobox(config_frame, textvariable=self.mode_var, values=[2, 4], width=5, state="readonly")
+        mode_cb.grid(row=0, column=1, padx=5)
+        mode_cb.bind("<<ComboboxSelected>>", lambda e: self.on_mode_change())
 
         ttk.Label(config_frame, text="Regla:").grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        ttk.Combobox(config_frame, textvariable=self.rule_var, values=["original", "order_free"], width=10, state="readonly").grid(row=0, column=3, padx=5)
+        rule_cb = ttk.Combobox(config_frame, textvariable=self.rule_var, values=["Original", "Orden Libre", "Dado Bonus"], width=12, state="readonly")
+        rule_cb.grid(row=0, column=3, padx=5)
+        rule_cb.bind("<<ComboboxSelected>>", lambda e: self.on_rule_change())
 
-        tk.Checkbutton(config_frame, text="Dado bonus", variable=self.bonus_var, bg="#f5f5f5").grid(row=0, column=4, padx=10)
-
-        # Frame para números
-        self.numbers_frame = tk.LabelFrame(root, text="Tus números", bg="#f5f5f5", font=("Arial", 12, "bold"))
-        self.numbers_frame.pack(fill="x", padx=10, pady=10)
-        self.update_number_entries()
+        # Frame para jugadores
+        self.players_frame = tk.LabelFrame(root, text="Jugadores", bg="#f5f5f5", font=("Arial", 12, "bold"))
+        self.players_frame.pack(fill="x", padx=10, pady=10)
+        self.add_player()  # Jugador inicial
 
         # Botones
         btn_frame = tk.Frame(root, bg="#f5f5f5")
         btn_frame.pack(pady=10)
-        ttk.Button(btn_frame, text="Elegir aleatorios", command=self.auto_numbers).grid(row=0, column=0, padx=5)
-        ttk.Button(btn_frame, text="🎲 Jugar", command=self.play).grid(row=0, column=1, padx=5)
+        ttk.Button(btn_frame, text="Elegir # aleatorios", command=self.auto_numbers).grid(row=0, column=0, padx=5)
+        ttk.Button(btn_frame, text="Agregar jugador", command=self.add_player).grid(row=0, column=1, padx=5)
+        ttk.Button(btn_frame, text="🎲 Jugar", command=self.play).grid(row=0, column=2, padx=5)
 
         # Resultados
         self.result_text = tk.Text(root, height=10, font=("Consolas", 11), bg="white")
         self.result_text.pack(fill="both", padx=10, pady=10, expand=True)
+        self.show_welcome_text()
 
-    def update_number_entries(self):
-        for widget in self.numbers_frame.winfo_children():
-            widget.destroy()
-        self.entry_vars = []
-        n = self.mode_var.get()
-        for i in range(n):
+    def add_player(self):
+        """Agrega un nuevo jugador con nombre y entradas de dados según el modo actual."""
+        idx = len(self.players) + 1
+        frame = tk.Frame(self.players_frame, bg="#f5f5f5", pady=3)
+        frame.pack(fill="x", anchor="w")
+
+        name_var = tk.StringVar(value=f"Jugador {idx}")
+        tk.Label(frame, text="Nombre:", bg="#f5f5f5").pack(side="left", padx=(5, 2))
+        tk.Entry(frame, textvariable=name_var, width=12).pack(side="left", padx=(0, 10))
+
+        # Botón eliminar jugador
+        del_btn = tk.Button(frame, text="✖", fg="red", bg="#f5f5f5", bd=0, command=lambda f=frame: self.delete_player(f))
+        del_btn.pack(side="right", padx=5)
+
+        dice_container = tk.Frame(frame, bg="#f5f5f5")
+        dice_container.pack(side="left")
+
+        dice_vars = []
+        for _ in range(self.mode_var.get()):
             var = tk.StringVar()
-            self.entry_vars.append(var)
-            ttk.Entry(self.numbers_frame, textvariable=var, width=5).grid(row=0, column=i, padx=5, pady=5)
+            dice_vars.append(var)
+            ttk.Entry(dice_container, textvariable=var, width=4).pack(side="left", padx=2)
+
+        self.players.append({
+            "name_var": name_var,
+            "dice_vars": dice_vars,
+            "frame": frame,
+            "dice_container": dice_container
+        })
+        self.renumber_default_names()
+
+    def delete_player(self, frame):
+        """Elimina un jugador dado su frame, preservando al menos uno."""
+        if len(self.players) <= 1:
+            messagebox.showinfo("Aviso", "Debe existir al menos un jugador.")
+            return
+        self.players = [p for p in self.players if p["frame"] != frame]
+        frame.destroy()
+        self.renumber_default_names()
+
+    def renumber_default_names(self):
+        """Actualiza nombres que aún tienen el formato por defecto 'Jugador X' para mantener correlativo."""
+        counter = 1
+        for p in self.players:
+            current = p["name_var"].get()
+            if current.startswith("Jugador "):
+                p["name_var"].set(f"Jugador {counter}")
+            counter += 1
+
+    def on_mode_change(self):
+        """Actualizar cantidad de dados por jugador cuando cambia el modo (2 o 4)."""
+        n = self.mode_var.get()
+        for p in self.players:
+            current = len(p["dice_vars"])
+            # Agregar si faltan
+            while current < n:
+                var = tk.StringVar()
+                p["dice_vars"].append(var)
+                ttk.Entry(p["dice_container"], textvariable=var, width=4).pack(side="left", padx=2)
+                current += 1
+            # Eliminar si sobran
+            while current > n:
+                to_remove = p["dice_vars"].pop()
+                # Buscar el widget correspondiente (último hijo)
+                children = p["dice_container"].winfo_children()
+                if children:
+                    children[-1].destroy()
+                current -= 1
+
+    def on_rule_change(self):
+        """Placeholder por si en un futuro se quiere cambiar algo visual según la regla."""
+        pass
+
+    def show_welcome_text(self):
+        msg = (
+            "Bienvenido a 'Los Dados de la Fortuna'\n"
+            "Selecciona modo (2 o 4 dados) y una regla:\n"
+            "  - Original: Deben coincidir posición y valor.\n"
+            "  - Orden Libre: Solo importa que el valor aparezca.\n"
+            "  - Dado Bonus: Después de la primera tirada se relanzan únicamente los dados que no coincidieron.\n"
+            "Agrega jugadores, escribe sus elecciones (sin repetir y entre 1-6) y pulsa 'Jugar'.\n"
+            "Usa 'Elegir aleatorios' para rellenar rápidamente. ¡Suerte!\n"
+        )
+        self.result_text.delete("1.0", tk.END)
+        self.result_text.insert(tk.END, msg)
 
     def auto_numbers(self):
         n = self.mode_var.get()
-        nums = random.sample(range(1, 7), n)
-        for i, var in enumerate(self.entry_vars):
-            var.set(str(nums[i]))
+        for p in self.players:
+            nums = random.sample(range(1, 7), n)
+            for i, var in enumerate(p["dice_vars"]):
+                var.set(str(nums[i]))
 
     def play(self):
-        try:
-            chosen = [int(var.get()) for var in self.entry_vars]
-            if len(set(chosen)) != len(chosen):
-                raise ValueError("Números repetidos.")
-            if not all(1 <= x <= 6 for x in chosen):
-                raise ValueError("Números fuera de rango (1-6).")
-        except Exception as e:
-            messagebox.showerror("Error", f"Entrada inválida: {e}")
-            return
-
         mode = self.mode_var.get()
-        rule = self.rule_var.get()
-        bonus = self.bonus_var.get()
+        rule_selected = self.rule_var.get()  # Puede ser original, order_free, bonus
+        bonus = (rule_selected == "Dado Bonus")
+        # Si es bonus, la comparación se hace como 'original'
+        effective_rule = "Original" if bonus else rule_selected
 
-        # Tirada inicial
-        roll = roll_dice(mode)
-        match_fn = matches_original if rule == "original" else matches_order_free
-        matches_initial = match_fn(chosen, roll)
-
-        if bonus:
-            matches_final, roll_final = apply_bonus(chosen, roll, match_fn)
-        else:
-            matches_final, roll_final = matches_initial, roll
-
-        prize = prize_text(mode, matches_final)
-
-        # Mostrar resultados
+        # Preparar salida
         self.result_text.delete("1.0", tk.END)
-        self.result_text.insert(tk.END, f"Elección del jugador: {chosen}\n")
-        self.result_text.insert(tk.END, f"Tirada inicial: {roll} → {matches_initial} aciertos\n")
-        if bonus:
-            self.result_text.insert(tk.END, f"Tirada final (con bonus): {roll_final} → {matches_final} aciertos\n")
-        else:
-            self.result_text.insert(tk.END, f"Tirada final: {roll_final} → {matches_final} aciertos\n")
-        self.result_text.insert(tk.END, f"\n🏆 Resultado: {prize}\n")
+        self.result_text.insert(tk.END, f"Modo: {mode} dados | Regla: {rule_selected}\n")
+        self.result_text.insert(tk.END, "="*55 + "\n")
 
-        # Probabilidades teóricas
-        key = f"{mode}_{'order_free' if rule=='order_free' else 'original'}"
+        match_fn = matches_original if effective_rule == "Original" else matches_order_free
+
+        for p in self.players:
+            name = p["name_var"].get().strip() or "Jugador"
+            # Leer dados elegidos
+            try:
+                chosen = [int(var.get()) for var in p["dice_vars"]]
+                if len(chosen) != mode:
+                    raise ValueError("Cantidad incorrecta de números")
+                if len(set(chosen)) != len(chosen):
+                    raise ValueError("Números repetidos")
+                if not all(1 <= x <= 6 for x in chosen):
+                    raise ValueError("Fuera de rango")
+            except Exception as e:
+                messagebox.showerror("Error", f"Entrada inválida para {name}: {e}")
+                return
+
+            roll = roll_dice(mode)
+            matches_initial = match_fn(chosen, roll)
+            if bonus:
+                matches_final, roll_final = apply_bonus(chosen, roll, match_fn)
+            else:
+                matches_final, roll_final = matches_initial, roll
+
+            prize = prize_text(mode, matches_final)
+            # Mostrar por jugador
+            self.result_text.insert(tk.END, f"{name}\n")
+            self.result_text.insert(tk.END, f"  Elección: {chosen}\n")
+            self.result_text.insert(tk.END, f"  Tirada inicial: {roll} → {matches_initial} aciertos\n")
+            if bonus:
+                self.result_text.insert(tk.END, f"  Tirada final (Dado Bonus): {roll_final} → {matches_final} aciertos\n")
+            else:
+                self.result_text.insert(tk.END, f"  Tirada final: {roll_final} → {matches_final} aciertos\n")
+            self.result_text.insert(tk.END, f"  🏆 {prize}\n")
+            self.result_text.insert(tk.END, "-"*40 + "\n")
+
+        # Probabilidades teóricas (una sola vez al final)
+        key = f"{mode}_{'Orden Libre' if effective_rule=='Orden Libre' else 'Original'}"
         if bonus:
-            key = f"{mode}_bonus" if f"{mode}_bonus" in THEORETICAL else key
+            # Usar la clave bonus si existe para ese número de dados
+            key = f"{mode}_Dado Bonus" if f"{mode}_Dado Bonus" in THEORETICAL else key
         self.result_text.insert(tk.END, "\nProbabilidades teóricas:\n")
-        for k, v in THEORETICAL.get(key, {}).items():
-            self.result_text.insert(tk.END, f"  {k:25s}: {v:.4f}\n")
+        theoretical = THEORETICAL.get(key, {})
+        if not theoretical:
+            self.result_text.insert(tk.END, "  (No disponibles para este modo)\n")
+        else:
+            for k, v in theoretical.items():
+                self.result_text.insert(tk.END, f"  {k:28s}: {v:.4f}\n")
 
 # -------------------------
 # Main
